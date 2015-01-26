@@ -1,0 +1,429 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>在 Flask 中使用 Celery &mdash; using celery with flask 1.00 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '1.00',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="using celery with flask 1.00 documentation" href="index.html" />
+    <link rel="prev" title="在 Flask 中使用 Celery" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="index.html" title="在 Flask 中使用 Celery"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">using celery with flask 1.00 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="flask-celery">
+<span id="first"></span><h1>在 Flask 中使用 Celery<a class="headerlink" href="#flask-celery" title="Permalink to this headline">¶</a></h1>
+<img alt="_images/flask-celery.png" src="_images/flask-celery.png" />
+<p>后台运行任务的话题是有些复杂，因为围绕这个话题会让人产生困惑。为了简单起见，在以前我所有的例子中，我都是在线程中执行后台任务，但是我一直注意到更具有扩展性以及具备生产解决方案的任务队列像 <a class="reference external" href="http://www.celeryproject.org/">Celery</a>  应该可以替代线程中执行后台任务。</p>
+<p>不断有读者问我关于 Celery 问题，以及怎样在 Flask 应用中使用它，因此今天我将会向你们展示两个例子，我希望能够覆盖大部分的应用需求。</p>
+<div class="section" id="id1">
+<h2>什么是 Celery?<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<p>Celery 是一个异步任务队列。你可以使用它在你的应用上下文之外执行任务。总的想法就是你的应用程序可能需要执行任何消耗资源的任务都可以交给任务队列，让你的应用程序自由和快速地响应客户端请求。</p>
+<p>使用 Celery 运行后台任务并不像在线程中这样做那么简单。但是好处多多，Celery 具有分布式架构，使你的应用易于扩展。一个 Celery 安装有三个核心组件：</p>
+<ol class="arabic simple">
+<li>Celery 客户端: 用于发布后台作业。当与 Flask 一起工作的时候，客户端与 Flask 应用一起运行。</li>
+<li>Celery workers: 这些是运行后台作业的进程。Celery 支持本地和远程的 workers，因此你就可以在 Flask 服务器上启动一个单独的 worker，随后随着你的应用需求的增加而新增更多的 workers。</li>
+<li>消息代理: 客户端通过消息队列和 workers 进行通信，Celery 支持多种方式来实现这些队列。最常用的代理就是 <a class="reference external" href="http://www.rabbitmq.com/">RabbitMQ</a> 和 <a class="reference external" href="http://redis.io/">Redis</a>。</li>
+</ol>
+</div>
+<div class="section" id="id2">
+<h2>致行动派读者<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h2>
+<p>如果你是行动派，本文开头的截图勾起你的好奇心的话，那么可以直接到 <a class="reference external" href="https://github.com/miguelgrinberg/flask-celery-example">Github repository</a> 获取本文用到的代码。 README 文件将会给你快速和直接的方式去运行示例应用。</p>
+<p>接着可以回到本文来了解工作机制！</p>
+</div>
+<div class="section" id="id3">
+<h2>Flask 和 Celery 一起工作<a class="headerlink" href="#id3" title="Permalink to this headline">¶</a></h2>
+<p>Flask 与 Celery 整合是十分简单，不需要任何插件。一个 Flask 应用需要使用 Celery 的话只需要初始化 Celery 客户端像这样:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">flask</span> <span class="kn">import</span> <span class="n">Flask</span>
+<span class="kn">from</span> <span class="nn">celery</span> <span class="kn">import</span> <span class="n">Celery</span>
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">Flask</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;CELERY_BROKER_URL&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;redis://localhost:6379/0&#39;</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;CELERY_RESULT_BACKEND&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;redis://localhost:6379/0&#39;</span>
+
+<span class="n">celery</span> <span class="o">=</span> <span class="n">Celery</span><span class="p">(</span><span class="n">app</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">broker</span><span class="o">=</span><span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;CELERY_BROKER_URL&#39;</span><span class="p">])</span>
+<span class="n">celery</span><span class="o">.</span><span class="n">conf</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>正如你所见，Celery 通过创建一个 Celery 类对象来初始化，传入应用名称以及消息代理的连接 URL，这个 URL 我把它放在 app.config 中的 CELERY_BROKER_URL 的键值。URL 告诉 Celery 代理服务在哪里运行。如果你运行的不是 Redis，或者代理服务运行在一个不同的机器上，相应地你需要改变 URL。</p>
+<p>Celery 其它任何配置可以直接用 celery.conf.update() 通过 Flask 的配置直接传递。CELERY_RESULT_BACKEND 选项只有在你必须要 Celery 任务的存储状态和运行结果的时候才是必须的。展示的第一个示例是不需要这个功能的，但是第二个示例是需要的，因此最好从一开始就配置好。</p>
+<p>任何你需要作为后台任务的函数需要用 celery.task 装饰器装饰。例如:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="nd">@celery.task</span>
+<span class="k">def</span> <span class="nf">my_background_task</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">):</span>
+    <span class="c"># some long running task here</span>
+    <span class="k">return</span> <span class="n">result</span>
+</pre></div>
+</div>
+<p>接着 Flask 应用能够请求这个后台任务的执行，像这样:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">task</span> <span class="o">=</span> <span class="n">my_background_task</span><span class="o">.</span><span class="n">delay</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>delay() 方法是强大的 apply_async() 调用的快捷方式。这样相当于使用 apply_async():</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">task</span> <span class="o">=</span> <span class="n">my_background_task</span><span class="o">.</span><span class="n">apply_async</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>当使用 apply_async()，你可以给 Celery 后台任务如何执行的更详细的说明。一个有用的选项就是要求任务在未来的某一时刻执行。例如，这个调用将安排任务运行在大约一分钟后:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">task</span> <span class="o">=</span> <span class="n">my_background_task</span><span class="o">.</span><span class="n">apply_async</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">],</span> <span class="n">countdown</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>delay() 和 apply_async() 的返回值是一个表示任务的对象，这个对象可以用于获取任务状态。我将会在本文的后面展示如何获取任务状态等信息，但现在让我们保持简单些，不用担心任务的执行结果。</p>
+<p>更多可用的选项请参阅 <a class="reference external" href="http://docs.celeryproject.org/en/latest/index.html">Celery 文档</a> 。</p>
+</div>
+<div class="section" id="id5">
+<h2>简单例子：异步发送邮件<a class="headerlink" href="#id5" title="Permalink to this headline">¶</a></h2>
+<p>我要举的第一个示例是应用程序非常普通的需求：能够发送邮件但是不阻塞主应用。</p>
+<p>在这个例子中我会用到 <a class="reference external" href="https://pythonhosted.org/Flask-Mail/">Flask-Mail</a> 扩展，我会假设你们熟悉这个扩展。</p>
+<p>我用来说明的示例应用是一个只有一个输入文本框的简单表单。要求用户在此文本框中输入一个电子邮件地址，并在提交，服务器会发送一个测试电子邮件到这个邮件地址。表单中包含两个提交按钮，一个立即发送邮件，一个是一分钟后发送邮件。表单的截图在文章开始。</p>
+<p>这里就是支持这个示例的 HTML 模板:</p>
+<div class="highlight-html"><div class="highlight"><pre><span class="nt">&lt;html&gt;</span>
+  <span class="nt">&lt;head&gt;</span>
+    <span class="nt">&lt;title&gt;</span>Flask + Celery Examples<span class="nt">&lt;/title&gt;</span>
+  <span class="nt">&lt;/head&gt;</span>
+  <span class="nt">&lt;body&gt;</span>
+    <span class="nt">&lt;h1&gt;</span>Flask + Celery Examples<span class="nt">&lt;/h1&gt;</span>
+    <span class="nt">&lt;h2&gt;</span>Example 1: Send Asynchronous Email<span class="nt">&lt;/h2&gt;</span>
+    {% for message in get_flashed_messages() %}
+    <span class="nt">&lt;p</span> <span class="na">style=</span><span class="s">&quot;color: red;&quot;</span><span class="nt">&gt;</span>{{ message }}<span class="nt">&lt;/p&gt;</span>
+    {% endfor %}
+    <span class="nt">&lt;form</span> <span class="na">method=</span><span class="s">&quot;POST&quot;</span><span class="nt">&gt;</span>
+      <span class="nt">&lt;p&gt;</span>Send test email to: <span class="nt">&lt;input</span> <span class="na">type=</span><span class="s">&quot;text&quot;</span> <span class="na">name=</span><span class="s">&quot;email&quot;</span> <span class="na">value=</span><span class="s">&quot;{{ email }}&quot;</span><span class="nt">&gt;&lt;/p&gt;</span>
+      <span class="nt">&lt;input</span> <span class="na">type=</span><span class="s">&quot;submit&quot;</span> <span class="na">name=</span><span class="s">&quot;submit&quot;</span> <span class="na">value=</span><span class="s">&quot;Send&quot;</span><span class="nt">&gt;</span>
+      <span class="nt">&lt;input</span> <span class="na">type=</span><span class="s">&quot;submit&quot;</span> <span class="na">name=</span><span class="s">&quot;submit&quot;</span> <span class="na">value=</span><span class="s">&quot;Send in 1 minute&quot;</span><span class="nt">&gt;</span>
+    <span class="nt">&lt;/form&gt;</span>
+  <span class="nt">&lt;/body&gt;</span>
+<span class="nt">&lt;/html&gt;</span>
+</pre></div>
+</div>
+<p>这里没有什么特别的东西。只是一个普通的 HTML 表单，再加上 Flask 闪现消息。</p>
+<p>Flask-Mail 扩展需要一些配置，尤其是电子邮件服务器发送邮件的时候会用到一些细节。为了简单我使用我的 Gmail 账号作为邮件服务器:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># Flask-Mail configuration</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;MAIL_SERVER&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;smtp.googlemail.com&#39;</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;MAIL_PORT&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">587</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;MAIL_USE_TLS&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;MAIL_USERNAME&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;MAIL_USERNAME&#39;</span><span class="p">)</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;MAIL_PASSWORD&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;MAIL_PASSWORD&#39;</span><span class="p">)</span>
+<span class="n">app</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;MAIL_DEFAULT_SENDER&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;flask@example.com&#39;</span>
+</pre></div>
+</div>
+<p>注意为了避免我的账号丢失的风险，我将其设置在系统的环境变量，这是我从应用中导入的。</p>
+<p>有一个单一的路由来支持这个示例:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">index</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;GET&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;index.html&#39;</span><span class="p">,</span> <span class="n">email</span><span class="o">=</span><span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;email&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">))</span>
+    <span class="n">email</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">]</span>
+    <span class="n">session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">email</span>
+
+    <span class="c"># send the email</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">Message</span><span class="p">(</span><span class="s">&#39;Hello from Flask&#39;</span><span class="p">,</span>
+                  <span class="n">recipients</span><span class="o">=</span><span class="p">[</span><span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">]])</span>
+    <span class="n">msg</span><span class="o">.</span><span class="n">body</span> <span class="o">=</span> <span class="s">&#39;This is a test email sent from a background Celery task.&#39;</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;submit&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;Send&#39;</span><span class="p">:</span>
+        <span class="c"># send right away</span>
+        <span class="n">send_async_email</span><span class="o">.</span><span class="n">delay</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&#39;Sending email to {0}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">email</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># send in one minute</span>
+        <span class="n">send_async_email</span><span class="o">.</span><span class="n">apply_async</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="p">[</span><span class="n">msg</span><span class="p">],</span> <span class="n">countdown</span><span class="o">=</span><span class="mi">60</span><span class="p">)</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&#39;An email will be sent to {0} in one minute&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">email</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;index&#39;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>再次说明，这是一个很标准的 Flask 应用。由于这是一个非常简单的表单，我决定在没有扩展的帮助下处理它，因此我用 request.method 和 request.form 来完成所有的管理。我保存用户在文本字段中输入的值在 session 中，这样在页面重新加载后就能记住它。</p>
+<p>在这个函数中让人有兴趣的是发送邮件的时候是通过调用一个叫做 send_async_email 的 Celery 任务，该任务调用 delay() 或者 apply_async() 方法。</p>
+<p>这个应用的最后一部分就是能够完成作业的异步任务:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="nd">@celery.task</span>
+<span class="k">def</span> <span class="nf">send_async_email</span><span class="p">(</span><span class="n">msg</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Background task to send an email with Flask-Mail.&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">app</span><span class="o">.</span><span class="n">app_context</span><span class="p">():</span>
+        <span class="n">mail</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>这个任务使用 celery.task 装饰使得成为一个后台作业。这个函数唯一值得注意的就是 Flask-Mail 需要在应用的上下文中运行，因此需要在调用 send() 之前创建一个应用上下文。</p>
+<p>重点注意在这个示例中从异步调用返回值并不保留，因此应用不能知道调用成功或者失败。当你运行这个示例的时候，需要检查 Celery worker 的输出来排查发送邮件的问题。</p>
+</div>
+<div class="section" id="id6">
+<h2>复杂例子：显示状态更新和结果<a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h2>
+<p>上面的示例过于简单，后台作业启动然后应用忘记它。大部分 Celery 针对网页开发的教程就到此为止，但是事实上许多应用程序有必要监控它的后台任务并且获取运行结果。</p>
+<p>我现在将要做的就是扩展上面的应用程序成为第二个示例，这个示例展示一个虚构的长时间运行的任务。用户点击按钮启动一个或者更多的长时间运行的任务，在浏览器上的页面使用 ajax 轮询服务器更新所有任务的状态。每一个任务，页面都会显示一个图形的状态栏，进度条，一个状态消息，并且当任务完成的时候，也会显示任务的执行结果。示例的截图在本文的最开始。</p>
+<div class="section" id="id7">
+<h3>状态更新的后台任务<a class="headerlink" href="#id7" title="Permalink to this headline">¶</a></h3>
+<p>让我向你们展示我在第二个示例中使用的后台任务:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="nd">@celery.task</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">long_task</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Background task that runs a long function with progress reports.&quot;&quot;&quot;</span>
+    <span class="n">verb</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Starting up&#39;</span><span class="p">,</span> <span class="s">&#39;Booting&#39;</span><span class="p">,</span> <span class="s">&#39;Repairing&#39;</span><span class="p">,</span> <span class="s">&#39;Loading&#39;</span><span class="p">,</span> <span class="s">&#39;Checking&#39;</span><span class="p">]</span>
+    <span class="n">adjective</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;master&#39;</span><span class="p">,</span> <span class="s">&#39;radiant&#39;</span><span class="p">,</span> <span class="s">&#39;silent&#39;</span><span class="p">,</span> <span class="s">&#39;harmonic&#39;</span><span class="p">,</span> <span class="s">&#39;fast&#39;</span><span class="p">]</span>
+    <span class="n">noun</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;solar array&#39;</span><span class="p">,</span> <span class="s">&#39;particle reshaper&#39;</span><span class="p">,</span> <span class="s">&#39;cosmic ray&#39;</span><span class="p">,</span> <span class="s">&#39;orbiter&#39;</span><span class="p">,</span> <span class="s">&#39;bit&#39;</span><span class="p">]</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">50</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">total</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">message</span> <span class="ow">or</span> <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mf">0.25</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="s">&#39;{0} {1} {2}...&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">verb</span><span class="p">),</span>
+                                              <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">adjective</span><span class="p">),</span>
+                                              <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">noun</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_state</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="s">&#39;PROGRESS&#39;</span><span class="p">,</span>
+                          <span class="n">meta</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;current&#39;</span><span class="p">:</span> <span class="n">i</span><span class="p">,</span> <span class="s">&#39;total&#39;</span><span class="p">:</span> <span class="n">total</span><span class="p">,</span>
+                                <span class="s">&#39;status&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">})</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s">&#39;current&#39;</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span> <span class="s">&#39;total&#39;</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span> <span class="s">&#39;status&#39;</span><span class="p">:</span> <span class="s">&#39;Task completed!&#39;</span><span class="p">,</span>
+            <span class="s">&#39;result&#39;</span><span class="p">:</span> <span class="mi">42</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>对于这个任务，我在 Celery 装饰器中添加了 bind=True 参数。这个参数告诉 Celery 发送一个 self 参数到我的函数，我能够使用它(self)来记录状态更新。</p>
+<p>因为这个任务真没有干什么有用的事情，我决定使用随机的动词，形容词和名词组合的幽默状态信息。你可以在代码上看到我用来生成上述信息的毫无意义的列表。</p>
+<p>self.update_state() 调用是 Celery 如何接受这些任务更新。有一些内置的状态，比如 STARTED, SUCCESS 等等，但是 Celery 也支持自定义状态。这里我使用一个叫做 PROGRESS 的自定义状态。连同状态，还有一个附件的元数据，该元数据是 Python 字典形式，包含目前和总的迭代数以及随机生成的状态消息。客户端可以使用这些元素来显示一个漂亮的进度条。每迭代一次休眠一秒，以模拟正在做一些工作。</p>
+<p>当循环退出，一个 Python 字典作为函数结果返回。这个字典包含了更新迭代计数器，最后的状态消息和幽默的结果。</p>
+<p>上面的 long_task() 函数在一个 Celery worker 进程中运行。下面你能看到启动这个后台作业的 Flask 应用路由:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/longtask&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">longtask</span><span class="p">():</span>
+    <span class="n">task</span> <span class="o">=</span> <span class="n">long_task</span><span class="o">.</span><span class="n">apply_async</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({}),</span> <span class="mi">202</span><span class="p">,</span> <span class="p">{</span><span class="s">&#39;Location&#39;</span><span class="p">:</span> <span class="n">url_for</span><span class="p">(</span><span class="s">&#39;taskstatus&#39;</span><span class="p">,</span>
+                                                  <span class="n">task_id</span><span class="o">=</span><span class="n">task</span><span class="o">.</span><span class="n">id</span><span class="p">)}</span>
+</pre></div>
+</div>
+<p>正如你所见，客户端需要发起一个 POST 请求到 /longtask 来掀开这些任务中的一个的序幕。服务器启动任务，并且存储返回值。对于响应我使用状态码 202，这个状态码通常是在 REST APIs 中使用用来表明一个请求正在进行中。我也添加了 Location 头，值为一个客户端用来获取状态信息的 URL。这个 URL 指向另一个叫做 taskstatus 的 Flask 路由，并且有 task.id 作为动态的要素。</p>
+</div>
+<div class="section" id="flask">
+<h3>从 Flask 应用中访问任务状态<a class="headerlink" href="#flask" title="Permalink to this headline">¶</a></h3>
+<p>上面提及到 taskstatus 路由负责报告有后台任务提供的状态更新。这里就是这个路由的实现:</p>
+<div class="highlight-python"><div class="highlight"><pre>@app.route(&#39;/status/&lt;task_id&gt;&#39;)
+def taskstatus(task_id):
+    task = long_task.AsyncResult(task_id)
+    if task.state == &#39;PENDING&#39;:
+        // job did not start yet
+        response = {
+            &#39;state&#39;: task.state,
+            &#39;current&#39;: 0,
+            &#39;total&#39;: 1,
+            &#39;status&#39;: &#39;Pending...&#39;
+        }
+    elif task.state != &#39;FAILURE&#39;:
+        response = {
+            &#39;state&#39;: task.state,
+            &#39;current&#39;: task.info.get(&#39;current&#39;, 0),
+            &#39;total&#39;: task.info.get(&#39;total&#39;, 1),
+            &#39;status&#39;: task.info.get(&#39;status&#39;, &#39;&#39;)
+        }
+        if &#39;result&#39; in task.info:
+            response[&#39;result&#39;] = task.info[&#39;result&#39;]
+    else:
+        # something went wrong in the background job
+        response = {
+            &#39;state&#39;: task.state,
+            &#39;current&#39;: 1,
+            &#39;total&#39;: 1,
+            &#39;status&#39;: str(task.info),  # this is the exception raised
+        }
+    return jsonify(response)
+</pre></div>
+</div>
+<p>这个路由生成一个 JSON 响应，该响应包含任务的状态以及设置在 update_state() 调用中作为 meta 的参数的所有值，客户端可以使用这些构建一个进度条。遗憾地是这个函数需要检查一些条件，因此代码有些长。为了能够访问任务的数据，我重新创建了任务对象，该对象是 AsyncResult 类的实例，使用了 URL 中给的任务 id。</p>
+<p>第一个 if 代码块是当任务还没有开始的时候(PENDING 状态)。在这种情况下暂时没有状态信息，因此我人为地制造了些数据。接下来的 elif 代码块返回后台的任务的状态信息。任务提供的信息可以通过访问 task.info 获得。如果数据中包含键 result ，这就意味着这是最终的结果并且任务已经结束，因此我把这些信息也加到响应中。最后的 else 代码块是任务执行失败的情况，这种情况下 task.info 中会包含异常的信息。</p>
+<p>不管你是否相信，服务器所有要做的事情已经完成了。剩下的部分就是需要客户端需要实现的，在这里也就是用 JavaScript 脚本的网页来实现。</p>
+</div>
+<div class="section" id="javascript">
+<h3>客户端的  Javascript<a class="headerlink" href="#javascript" title="Permalink to this headline">¶</a></h3>
+<p>这一部分就不是本文的重点，如果你有兴趣的话，可以自己研究研究。</p>
+<p>对于图形进度条我使用 <a class="reference external" href="http://nanobar.micronube.com/">nanobar.js</a>，我从 CDN 上引用它。同样还需要引入 jQuery，它能够简化 ajax 的调用。</p>
+<div class="highlight-html"><div class="highlight"><pre><span class="nt">&lt;script </span><span class="na">src=</span><span class="s">&quot;//cdnjs.cloudflare.com/ajax/libs/nanobar/0.2.1/nanobar.min.js&quot;</span><span class="nt">&gt;&lt;/script&gt;</span>
+<span class="nt">&lt;script </span><span class="na">src=</span><span class="s">&quot;//cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js&quot;</span><span class="nt">&gt;&lt;/script&gt;</span>
+</pre></div>
+</div>
+<p>启动连接后台作业的按钮的 Javascript 处理程序如下:</p>
+<div class="highlight-python"><div class="highlight"><pre>function start_long_task() {
+    // add task status elements
+    div = $(&#39;&lt;div class=&quot;progress&quot;&gt;&lt;div&gt;&lt;/div&gt;&lt;div&gt;0%&lt;/div&gt;&lt;div&gt;...&lt;/div&gt;&lt;div&gt;&amp;nbsp;&lt;/div&gt;&lt;/div&gt;&lt;hr&gt;&#39;);
+    $(&#39;#progress&#39;).append(div);
+
+    // create a progress bar
+    var nanobar = new Nanobar({
+        bg: &#39;#44f&#39;,
+        target: div[0].childNodes[0]
+    });
+
+    // send ajax POST request to start background job
+    $.ajax({
+        type: &#39;POST&#39;,
+        url: &#39;/longtask&#39;,
+        success: function(data, status, request) {
+            status_url = request.getResponseHeader(&#39;Location&#39;);
+            update_progress(status_url, nanobar, div[0]);
+        },
+        error: function() {
+            alert(&#39;Unexpected error&#39;);
+        }
+    });
+}
+</pre></div>
+</div>
+<p>div 的代码:</p>
+<div class="highlight-html"><div class="highlight"><pre>&lt;div class=&quot;progress&quot;&gt;
+    &lt;div&gt;&lt;/div&gt;         &lt;-- Progress bar
+    &lt;div&gt;0%&lt;/div&gt;       &lt;-- Percentage
+    &lt;div&gt;...&lt;/div&gt;      &lt;-- Status message
+    &lt;div&gt;&amp;nbsp;&lt;/div&gt;   &lt;-- Result
+&lt;/div&gt;
+&lt;hr&gt;
+</pre></div>
+</div>
+<p>最后 Javascript 的 update_progress 函数代码如下:</p>
+<div class="highlight-python"><div class="highlight"><pre>function update_progress(status_url, nanobar, status_div) {
+      // send GET request to status URL
+      $.getJSON(status_url, function(data) {
+          // update UI
+          percent = parseInt(data[&#39;current&#39;] * 100 / data[&#39;total&#39;]);
+          nanobar.go(percent);
+          $(status_div.childNodes[1]).text(percent + &#39;%&#39;);
+          $(status_div.childNodes[2]).text(data[&#39;status&#39;]);
+          if (data[&#39;state&#39;] != &#39;PENDING&#39; &amp;&amp; data[&#39;state&#39;] != &#39;PROGRESS&#39;) {
+              if (&#39;result&#39; in data) {
+                  // show result
+                  $(status_div.childNodes[3]).text(&#39;Result: &#39; + data[&#39;result&#39;]);
+              }
+              else {
+                  // something unexpected happened
+                  $(status_div.childNodes[3]).text(&#39;Result: &#39; + data[&#39;state&#39;]);
+              }
+          }
+          else {
+              // rerun in 2 seconds
+              setTimeout(function() {
+                  update_progress(status_url, nanobar, status_div);
+              }, 2000);
+          }
+      });
+  }
+</pre></div>
+</div>
+<p>这一部分的代码就不一一解释了。</p>
+</div>
+</div>
+<div class="section" id="id8">
+<h2>运行示例<a class="headerlink" href="#id8" title="Permalink to this headline">¶</a></h2>
+<p>首先下载代码，代码的位于 <a class="reference external" href="https://github.com/miguelgrinberg/flask-celery-example">Github repository</a>，接着执行以下的命令:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ git clone https://github.com/miguelgrinberg/flask-celery-example.git
+$ cd flask-celery-example
+$ virtualenv venv
+$ source venv/bin/activate
+(venv) $ pip install -r requirements.txt
+</pre></div>
+</div>
+<p>接着，启动 redis，关于 redis 的安装，启动以及配置，请参阅 <a class="reference external" href="http://redis.io/documentation/">Redis 文档</a>。</p>
+<p>最后，执行如下命令运行示例:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ export MAIL_USERNAME=&lt;your-gmail-username&gt;
+$ export MAIL_PASSWORD=&lt;your-gmail-password&gt;
+$ source venv/bin/activate
+(venv) $ celery worker -A app.celery --loglevel=info
+</pre></div>
+</div>
+<p>运行你的 Flask 应用来感受 Flask 和 Celery 一起工作的快乐:</p>
+<div class="highlight-python"><div class="highlight"><pre>$ source venv/bin/activate
+(venv) $ python app.py
+</pre></div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">在 Flask 中使用 Celery</a><ul>
+<li><a class="reference internal" href="#id1">什么是 Celery?</a></li>
+<li><a class="reference internal" href="#id2">致行动派读者</a></li>
+<li><a class="reference internal" href="#id3">Flask 和 Celery 一起工作</a></li>
+<li><a class="reference internal" href="#id5">简单例子：异步发送邮件</a></li>
+<li><a class="reference internal" href="#id6">复杂例子：显示状态更新和结果</a><ul>
+<li><a class="reference internal" href="#id7">状态更新的后台任务</a></li>
+<li><a class="reference internal" href="#flask">从 Flask 应用中访问任务状态</a></li>
+<li><a class="reference internal" href="#javascript">客户端的  Javascript</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#id8">运行示例</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="index.html"
+                        title="previous chapter">在 Flask 中使用 Celery</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/first.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="index.html" title="在 Flask 中使用 Celery"
+             >previous</a> |</li>
+        <li><a href="index.html">using celery with flask 1.00 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2015, miguel.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.1.
+    </div>
+  </body>
+</html>

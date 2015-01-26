@@ -143,7 +143,7 @@ Flask-Mail 扩展需要一些配置，尤其是电子邮件服务器发送邮件
 
 	    return redirect(url_for('index'))
 
-再次说明，这是一个很标准的 Flask 应用。由于这是一个非常简单的表单，我决定在没有扩展的帮助下处理它，因此我用 request.method 和 request.form 来完成所有的管理。我保存用户在文本框中输入的值在 session 中，这样在页面重新加载后就能记住它。
+再次说明，这是一个很标准的 Flask 应用。由于这是一个非常简单的表单，我决定在没有扩展的帮助下处理它，因此我用 request.method 和 request.form 来完成所有的管理。我保存用户在文本字段中输入的值在 session 中，这样在页面重新加载后就能记住它。
 
 在这个函数中让人有兴趣的是发送邮件的时候是通过调用一个叫做 send_async_email 的 Celery 任务，该任务调用 delay() 或者 apply_async() 方法。
 
